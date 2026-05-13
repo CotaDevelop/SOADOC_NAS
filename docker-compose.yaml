@@ -1,0 +1,39 @@
+services:
+  # Servidor NAS (Samba) para pruebas
+  nas_server:
+    image: dperson/samba:latest
+    container_name: local_nas
+    environment:
+      - TZ=America/Bogota
+    ports:
+      - "139:139"
+      - "445:445"
+    volumes:
+      - ./nas_storage:/storage
+    command: >
+      -u "nas_user;nas_password"
+      -s "shared_nas;/storage;yes;no;no;nas_user"
+    networks:
+      - nas_network
+    restart: unless-stopped
+
+  # Aplicación Django
+  web:
+    build: .
+    container_name: django_nas_app
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      - nas_server
+    networks:
+      - nas_network
+    restart: unless-stopped
+
+# Declaración explícita de la red personalizada
+networks:
+  nas_network:
+    driver: bridge
