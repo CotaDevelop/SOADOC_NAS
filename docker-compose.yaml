@@ -1,39 +1,81 @@
 services:
-  # Servidor NAS (Samba) para pruebas
+  # Base de Datos MySQL
+  db_server:
+    image: mysql:8.0
+    container_name: local_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_NAME}
+      MYSQL_USER: ${DB_USER}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    ports:
+      - "${DB_PORT}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - nas_network
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mysqladmin",
+          "ping",
+          "-h",
+          "localhost",
+          "-u",
+          "root",
+          "-p$$MYSQL_ROOT_PASSWORD",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  # Servidor NAS (Samba) - Simulando Windows Storage Server
   nas_server:
     image: dperson/samba:latest
     container_name: local_nas
-    environment:
-      - TZ=America/Bogota
+    restart: unless-stopped
     ports:
-      - "139:139"
-      - "445:445"
+      - "1139:139"
+      - "1445:445"
     volumes:
       - ./nas_storage:/storage
-    command: >
-      -u "nas_user;nas_password"
-      -s "shared_nas;/storage;yes;no;no;nas_user"
+    command:
+      - "-u"
+      - "${NAS_USER};${NAS_PASSWORD}"
+      - "-s"
+      - "${NAS_SHARE};/storage;yes;no;no;${NAS_USER}"
+      - "-w"
+      - "${NAS_DOMAIN}"
     networks:
       - nas_network
-    restart: unless-stopped
 
   # Aplicación Django
   web:
     build: .
     container_name: django_nas_app
+    restart: unless-stopped
     ports:
       - "8000:8000"
     volumes:
-      - .:/app
-    environment:
-      - PYTHONUNBUFFERED=1
+      - .:/app # bind mount para hot reload en desarrollo
+      - venv_data:/app/.venv # protege el .venv compilado en el build
+    env_file:
+      - .env
     depends_on:
-      - nas_server
+      db_server:
+        condition: service_healthy # espera que MySQL esté realmente listo
+      nas_server:
+        condition: service_started
     networks:
       - nas_network
-    restart: unless-stopped
 
-# Declaración explícita de la red personalizada
 networks:
   nas_network:
     driver: bridge
+
+volumes:
+  mysql_data:
+  venv_data: # volumen nombrado para preservar el .venv del contenedor
